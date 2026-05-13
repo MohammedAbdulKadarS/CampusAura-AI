@@ -33,7 +33,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Trial-kaaga '*' kudukkalaam, idhu ellathaiyum allow pannum
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
