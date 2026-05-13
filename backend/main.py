@@ -1,151 +1,78 @@
 from groq import Groq
 import os
-from fastapi import FastAPI, Depends, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from . import models
 from .database import engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
 from pypdf import PdfReader
 import io
 
-# Database tables creation
+# Initialize DB
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# --- CORS Configuration ---
-# origins = ["http://localhost:3000", "https://campus-aura-ai.vercel.app"]
+# 🛡️ THE ULTIMATE CORS FIX
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Production fix-kaga '*' use panrom
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Groq Client Initialization ---
-api_key = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=api_key)
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# --- Models ---
 class ChatRequest(BaseModel):
     user_id: int
     agent_id: str
     message: str
     session_id: str = "default"
 
+# 🚀 Render Health Check-ku idhu romba mukkiyam
 @app.get("/")
+@app.head("/")
 def read_root():
-    return {"status": "ok", "message": "CampusAura AI Backend is Running Successfully!"}
+    return {"status": "online"}
 
-# --- CHAT ROUTE ---
 @app.post("/chat")
-def chat_with_agent(request: ChatRequest, db: Session = Depends(get_db)):
-    # 1. Save User Message
-    user_msg = models.ChatHistory(
-        user_id=request.user_id,
-        agent_id=request.agent_id,
-        session_id=request.session_id,
-        message=request.message,
-        sender="user"
+async def chat(request: ChatRequest, db: Session = Depends(get_db)):
+    # Save User Msg
+    new_msg = models.ChatHistory(
+        user_id=request.user_id, agent_id=request.agent_id,
+        session_id=request.session_id, message=request.message, sender="user"
     )
-    db.add(user_msg)
+    db.add(new_msg)
     db.commit()
-
-    # --- System Prompt Logic ---
-    if request.agent_id.lower() == "marcus":
-        system_content = (
-            "You are Auditor Marcus, a world-class ATS Compliance Lead. Tone: Strict, Professional.\n\n"
-            "STRICT OUTPUT STRUCTURE:\n"
-            "1. **ATS COMPATIBILITY SCORE**\n"
-            "2. **PARSING ERRORS**\n"
-            "3. **KEYWORD ANALYSIS**\n"
-            "4. **QUANTITATIVE GAPS**\n"
-            "5. **MARCUS'S DIRECTIVE**\n\n"
-            "Add exactly TWO EMPTY LINES between every section."
-        )
-    else:
-        system_content = (
-            f"You are {request.agent_id}, a personal career mentor at CampusAura. "
-            "Tone: Encouraging senior trainer.\n\n"
-            "STRICT RULES:\n"
-            "- Use bold headers and bullet points.\n"
-            "- Add TWO blank lines between sections.\n"
-            "- Keep responses concise (2-3 sentences max).\n"
-        )
 
     try:
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": request.message}
-            ],
+            messages=[{"role": "user", "content": request.message}]
         )
-        ai_response_text = completion.choices[0].message.content
+        response_text = completion.choices[0].message.content
     except Exception as e:
-        print(f"Groq Error: {e}")
-        ai_response_text = "Sorry machan, Groq API-la chinna issue. Un key check pannu!"
+        response_text = f"Error: {str(e)}"
 
-    # 2. Save AI Response
+    # Save AI Msg
     ai_msg = models.ChatHistory(
-        user_id=request.user_id,
-        agent_id=request.agent_id,
-        session_id=request.session_id,
-        message=ai_response_text,
-        sender="ai"
+        user_id=request.user_id, agent_id=request.agent_id,
+        session_id=request.session_id, message=response_text, sender="ai"
     )
     db.add(ai_msg)
     db.commit()
-    
-    return {"response": ai_response_text}
+    return {"response": response_text}
 
-# --- HISTORY ROUTE ---
 @app.get("/history/{user_id}/{agent_id}")
-def get_history(user_id: int, agent_id: str, session_id: str = "default", db: Session = Depends(get_db)):
+def get_history(user_id: int, agent_id: str, db: Session = Depends(get_db)):
     chats = db.query(models.ChatHistory).filter(
         models.ChatHistory.user_id == user_id,
-        models.ChatHistory.agent_id == agent_id,
-        models.ChatHistory.session_id == session_id
-    ).order_by(models.ChatHistory.timestamp.asc()).all()
-    
+        models.ChatHistory.agent_id == agent_id
+    ).all()
     return [{"sender": c.sender, "text": c.message} for c in chats]
 
-# --- SESSIONS ROUTE ---
 @app.get("/sessions/{user_id}/{agent_id}")
-def get_user_sessions(user_id: int, agent_id: str, db: Session = Depends(get_db)):
-    sessions_raw = db.query(
-        models.ChatHistory.session_id,
-        models.ChatHistory.message
-    ).filter(
-        models.ChatHistory.user_id == user_id,
-        models.ChatHistory.agent_id == agent_id,
-        models.ChatHistory.sender == "user"
-    ).order_by(models.ChatHistory.id.asc()).all()
-
-    unique_sessions = {}
-    for s in sessions_raw:
-        if s.session_id not in unique_sessions:
-            clean_message = s.message.replace('\n', ' ').strip()
-            title = clean_message[:30] + "..." if len(clean_message) > 30 else clean_message
-            unique_sessions[s.session_id] = title.upper()
-
-    result = [{"id": sid, "title": title} for sid, title in unique_sessions.items()]
-    return result[::-1]
-
-# --- PDF UPLOAD ROUTE ---
-@app.post("/upload-resume")
-async def upload_resume(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-        reader = PdfReader(io.BytesIO(contents))
-        extracted_text = ""
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                extracted_text += text
-        return {"text": extracted_text}
-    except Exception as e:
-        return {"error": str(e)}
+def get_sessions(user_id: int, agent_id: str, db: Session = Depends(get_db)):
+    return []
