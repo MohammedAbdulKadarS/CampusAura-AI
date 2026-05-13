@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import ReactMarkdown from 'react-markdown';
 import Sidebar from './Sidebar';
@@ -10,15 +10,16 @@ interface Message {
 }
 
 // 🌐 Dynamic API URL Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://campusaura-api.onrender.com';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://campusaura-ai.onrender.com';
 
 export default function Workspace({ agentData, onBack, onMessageSent }: { agentData: any, onBack: () => void, onMessageSent: () => void }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // 1. Session ID State - LocalStorage-la agent wise save panrom
+  // 1. Session ID State Logic
   const [sessionId, setSessionId] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(`lastSession_${agentData.id}`);
@@ -27,10 +28,15 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     return `session_${agentData.id}`;
   });
 
+  // Auto-scroll logic for better UX
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
+
   // 2. Sidebar Sessions Fetch Logic
   const fetchSessions = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sessions/1/${agentData.id}`);
+      const response = await fetch(`${API_BASE_URL}/sessions/1/${agentData.id}/`);
       if (response.ok) {
         const data = await response.json();
         setSessions(data);
@@ -40,41 +46,42 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     }
   }, [agentData.id]);
 
-  // 3. History Fetching Logic
-  const fetchHistory = useCallback(async () => {
+  // 3. History Fetching Logic - Fixed with Session ID dependency
+  const fetchHistory = useCallback(async (targetSessionId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/history/1/${agentData.id}?session_id=${sessionId}`);
+      const response = await fetch(`${API_BASE_URL}/history/1/${agentData.id}/?session_id=${targetSessionId}`);
       if (response.ok) {
         const data = await response.json();
         setMessages(data);
       }
     } catch (error) {
       console.error("History fetch error!", error);
-      setMessages([]); // Error vandha clean pannidalaam
+      setMessages([]);
     }
-  }, [agentData.id, sessionId]);
+  }, [agentData.id]);
 
   // 4. Initial Load & Sync
   useEffect(() => {
     if (agentData.id) {
       fetchSessions();
-      fetchHistory();
+      fetchHistory(sessionId);
     }
   }, [agentData.id, sessionId, fetchSessions, fetchHistory]);
 
-  // 5. Start New Session
+  // 5. Start New Session - Properly resets state
   const startNewSession = () => {
     const newId = `session_${agentData.id}_${uuidv4().slice(0, 8)}`;
     setMessages([]);
     setSessionId(newId);
     localStorage.setItem(`lastSession_${agentData.id}`, newId);
-    fetchSessions();
+    fetchSessions(); // Refresh sidebar
   };
 
-  // 6. Session Change Handler
+  // 6. Session Change Handler - Loads history correctly
   const handleSessionSelect = (id: string) => {
     setSessionId(id);
     localStorage.setItem(`lastSession_${agentData.id}`, id);
+    fetchHistory(id); // Immediately fetch the selected session's history
   };
 
   // 🛠️ PDF Upload Handler
@@ -87,7 +94,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     formData.append('file', file);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/upload-resume`, {
+      const response = await fetch(`${API_BASE_URL}/upload-resume/`, {
         method: 'POST',
         body: formData,
       });
@@ -106,13 +113,13 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
       console.error("Upload error!", error);
     } finally {
       setIsTyping(false);
-      e.target.value = '';
+      if (e.target) e.target.value = '';
     }
   };
 
   // 7. Send Message Logic
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return;
 
     const userMessage = { sender: 'user', text: input };
     setMessages(prev => [...prev, userMessage]);
@@ -124,7 +131,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     setIsTyping(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(`${API_BASE_URL}/chat/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -139,13 +146,12 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
         const data = await response.json();
         setMessages(prev => [...prev, { sender: 'ai', text: data.response }]);
         
-        // Refresh sessions to show new title in sidebar
-        fetchSessions();
+        fetchSessions(); // Update sidebar with new session titles
         if (onMessageSent) onMessageSent();
       }
     } catch (error) {
       console.error("Chat error!", error);
-      setMessages(prev => [...prev, { sender: 'ai', text: "Server-kooda pesa mudila machan. Render wake-up aaga 50s aagalam, oru 1 min kazhichu try pannu!" }]);
+      setMessages(prev => [...prev, { sender: 'ai', text: "Server-kooda pesa mudila machan. Render wake-up aaga 50s aagalam!" }]);
     } finally {
       setIsTyping(false);
     }
@@ -205,6 +211,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
                   {agentData.name} is thinking...
                 </p>
               )}
+              <div ref={chatEndRef} />
             </>
           )}
         </div>
@@ -237,7 +244,10 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
               />
               <button 
                 onClick={sendMessage}
-                className="bg-blue-600 text-white h-14 px-10 rounded-[24px] font-black text-xs tracking-widest hover:bg-blue-500 transition-all uppercase"
+                disabled={isTyping}
+                className={`h-14 px-10 rounded-[24px] font-black text-xs tracking-widest transition-all uppercase ${
+                  isTyping ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
               >
                 Send
               </button>
