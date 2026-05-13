@@ -22,9 +22,11 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # CORS Middleware - Next.js connectivity-ku romba mukkiyam
+# main.py-la intha section-ah update pannu
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Ellaa origins-ahyum allow panna solrom
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
