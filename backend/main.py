@@ -9,30 +9,24 @@ from pydantic import BaseModel
 from typing import List
 from pypdf import PdfReader
 import io
-import uvicorn
 
-# --- Database Setup ---
+# Database tables creation
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
 # --- CORS Configuration ---
-origins = [
-    "http://localhost:3000",
-    "https://campus-aura-ai.vercel.app",
-]
-
+# origins = ["http://localhost:3000", "https://campus-aura-ai.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Production-la specific-aa venum na origins list kudukkalam, ipo '*' safe path fix-ku
+    allow_origins=["*"], # Production fix-kaga '*' use panrom
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- Groq Client Initialization ---
-# Render Environment Variables-la GROQ_API_KEY nu name vachukko
-api_key = os.getenv("GROQ_API_KEY", "PASTE_YOUR_KEY_HERE_IF_NOT_IN_ENV")
+api_key = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=api_key)
 
 # --- Models ---
@@ -44,7 +38,7 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"message": "CampusAura AI Backend is Running Successfully!"}
+    return {"status": "ok", "message": "CampusAura AI Backend is Running Successfully!"}
 
 # --- CHAT ROUTE ---
 @app.post("/chat")
