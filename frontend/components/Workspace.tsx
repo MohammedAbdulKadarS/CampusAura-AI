@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import ReactMarkdown from 'react-markdown';
 import Sidebar from './Sidebar';
@@ -10,25 +10,25 @@ interface Message {
 }
 
 // 🌐 Dynamic API URL Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://campusaura-api.onrender.com';
 
 export default function Workspace({ agentData, onBack, onMessageSent }: { agentData: any, onBack: () => void, onMessageSent: () => void }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [sessions, setSessions] = useState<any[]>([]); 
+  const [sessions, setSessions] = useState<any[]>([]);
 
   // 1. Session ID State - LocalStorage-la agent wise save panrom
   const [sessionId, setSessionId] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(`lastSession_${agentData.id}`);
-      return saved || `session_${agentData.id}`;
+      return saved || `session_${agentData.id}_${uuidv4().slice(0, 8)}`;
     }
     return `session_${agentData.id}`;
   });
 
-  // 2. Sidebar Sessions Fetch Logic (Updated with Dynamic URL)
-  const fetchSessions = async () => {
+  // 2. Sidebar Sessions Fetch Logic
+  const fetchSessions = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/sessions/1/${agentData.id}`);
       if (response.ok) {
@@ -38,50 +38,46 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     } catch (error) {
       console.error("Sessions fetch error machan!", error);
     }
-  };
+  }, [agentData.id]);
 
-  // 3. Initial Load & Agent Switch Refresh
+  // 3. History Fetching Logic
+  const fetchHistory = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/history/1/${agentData.id}?session_id=${sessionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data);
+      }
+    } catch (error) {
+      console.error("History fetch error!", error);
+      setMessages([]); // Error vandha clean pannidalaam
+    }
+  }, [agentData.id, sessionId]);
+
+  // 4. Initial Load & Sync
   useEffect(() => {
     if (agentData.id) {
       fetchSessions();
+      fetchHistory();
     }
-  }, [agentData.id]);
+  }, [agentData.id, sessionId, fetchSessions, fetchHistory]);
 
-  // 4. Start New Session
+  // 5. Start New Session
   const startNewSession = () => {
-    const newId = uuidv4();
+    const newId = `session_${agentData.id}_${uuidv4().slice(0, 8)}`;
     setMessages([]);
     setSessionId(newId);
     localStorage.setItem(`lastSession_${agentData.id}`, newId);
     fetchSessions();
   };
 
-  // 5. Session Change Handler (History click pannum pothu)
+  // 6. Session Change Handler
   const handleSessionSelect = (id: string) => {
     setSessionId(id);
     localStorage.setItem(`lastSession_${agentData.id}`, id);
   };
 
-  // 6. History Fetching Logic (Updated with Dynamic URL)
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/history/1/${agentData.id}?session_id=${sessionId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setMessages(data);
-        }
-      } catch (error) {
-        console.error("History fetch error!", error);
-      }
-    };
-
-    if (agentData.id && sessionId) {
-      fetchHistory();
-    }
-  }, [agentData.id, sessionId]);
-
-  // 🛠️ PDF Upload Handler (Updated with Dynamic URL)
+  // 🛠️ PDF Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -98,9 +94,13 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
 
       if (response.ok) {
         const data = await response.json();
-        setInput(`AUDIT MY RESUME CONTENT:\n\n${data.text}`);
+        if (data.text) {
+           setInput(`AUDIT MY RESUME CONTENT:\n\n${data.text}`);
+        } else {
+           alert(data.error || "PDF empty-ah irukku machan.");
+        }
       } else {
-        alert("Machan, PDF upload-la error. File size or format-ah check pannu!");
+        alert("Machan, PDF upload-la issue. Manual-ah text copy panni podu.");
       }
     } catch (error) {
       console.error("Upload error!", error);
@@ -110,7 +110,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     }
   };
 
-  // 7. Send Message Logic (Updated with Dynamic URL)
+  // 7. Send Message Logic
   const sendMessage = async () => {
     if (!input.trim()) return;
 
@@ -139,15 +139,13 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
         const data = await response.json();
         setMessages(prev => [...prev, { sender: 'ai', text: data.response }]);
         
-        if (onMessageSent) {
-          setTimeout(() => {
-            onMessageSent();
-            fetchSessions();
-          }, 1500);
-        }
+        // Refresh sessions to show new title in sidebar
+        fetchSessions();
+        if (onMessageSent) onMessageSent();
       }
     } catch (error) {
       console.error("Chat error!", error);
+      setMessages(prev => [...prev, { sender: 'ai', text: "Server-kooda pesa mudila machan. Render wake-up aaga 50s aagalam, oru 1 min kazhichu try pannu!" }]);
     } finally {
       setIsTyping(false);
     }
@@ -156,7 +154,6 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
   return (
     <div className="flex h-screen bg-[#050505] text-white overflow-hidden">
       
-      {/* 🛠️ SIDEBAR */}
       <Sidebar 
         sessions={sessions}
         currentSessionId={sessionId}
@@ -165,7 +162,6 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
         activeAgent={agentData.id}
       />
 
-      {/* 🚀 MAIN CHAT AREA */}
       <main className="flex-1 flex flex-col relative min-w-0">
         <header className="p-8 border-b border-white/5 flex items-center justify-between backdrop-blur-md bg-black/20">
           <div className="flex items-center gap-6">
@@ -182,7 +178,6 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
           </div>
         </header>
 
-        {/* Conversation Area */}
         <div className="flex-1 overflow-y-auto p-12 space-y-8 scrollbar-hide">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-center opacity-20">
@@ -199,13 +194,8 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
                     ? 'bg-blue-600 text-white font-bold shadow-2xl shadow-blue-600/10' 
                     : 'bg-[#111] border border-white/5 text-gray-200 shadow-black shadow-lg'
                   }`}>
-                    <div className="gemini-content prose prose-invert max-w-none
-                        prose-p:leading-relaxed prose-p:mb-4
-                        prose-headings:text-cyan-400 prose-headings:font-black prose-headings:mt-6 prose-headings:mb-2
-                        prose-ul:list-disc prose-ul:ml-4 prose-li:mb-2">
-                      <ReactMarkdown>
-                        {msg.text}
-                      </ReactMarkdown>
+                    <div className="gemini-content prose prose-invert max-w-none">
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
                     </div>
                   </div>
                 </div>
@@ -219,12 +209,9 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
           )}
         </div>
 
-        {/* Floating Input Area */}
         <div className="p-12">
           <div className="max-w-4xl mx-auto relative">
             <div className="relative bg-[#0f0f0f] border border-white/10 rounded-[32px] p-2 flex items-center shadow-2xl focus-within:border-blue-500/50 transition-all">
-              
-              {/* Paperclip Button & Hidden File Input */}
               <input 
                 type="file" 
                 id="resume-upload" 
