@@ -23,14 +23,21 @@ app = FastAPI()
 
 # CORS Middleware - Next.js connectivity-ku romba mukkiyam
 # main.py-la intha section-ah update pannu
+from fastapi.middleware.cors import CORSMiddleware
+
+# Intha list-la un Vercel URL-ah add pannanum
+origins = [
+    "http://localhost:3000",
+    "https://campus-aura-ai.vercel.app", # Un live frontend link
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Ellaa origins-ahyum allow panna solrom
+    allow_origins=["*"], # Trial-kaaga '*' kudukkalaam, idhu ellathaiyum allow pannum
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Chat Request Structure
 class ChatRequest(BaseModel):
     user_id: int
