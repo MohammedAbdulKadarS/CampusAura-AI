@@ -2,8 +2,8 @@ from groq import Groq
 import os
 from fastapi import FastAPI, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
-import models
-from database import engine, get_db
+from . import models
+from .database import engine, get_db
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
