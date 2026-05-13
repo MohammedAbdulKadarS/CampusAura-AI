@@ -9,6 +9,9 @@ interface Message {
   text: string;
 }
 
+// 🌐 Dynamic API URL Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
 export default function Workspace({ agentData, onBack, onMessageSent }: { agentData: any, onBack: () => void, onMessageSent: () => void }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,10 +27,10 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     return `session_${agentData.id}`;
   });
 
-  // 2. Sidebar Sessions Fetch Logic (Isolated by Agent ID)
+  // 2. Sidebar Sessions Fetch Logic (Updated with Dynamic URL)
   const fetchSessions = async () => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/sessions/1/${agentData.id}`);
+      const response = await fetch(`${API_BASE_URL}/sessions/1/${agentData.id}`);
       if (response.ok) {
         const data = await response.json();
         setSessions(data);
@@ -59,11 +62,11 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     localStorage.setItem(`lastSession_${agentData.id}`, id);
   };
 
-  // 6. History Fetching Logic (Agent + Session based)
+  // 6. History Fetching Logic (Updated with Dynamic URL)
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch(`http://127.0.0.1:8000/history/1/${agentData.id}?session_id=${sessionId}`);
+        const response = await fetch(`${API_BASE_URL}/history/1/${agentData.id}?session_id=${sessionId}`);
         if (response.ok) {
           const data = await response.json();
           setMessages(data);
@@ -78,7 +81,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     }
   }, [agentData.id, sessionId]);
 
-  // 🛠️ NEW: PDF Upload Handler
+  // 🛠️ PDF Upload Handler (Updated with Dynamic URL)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -88,14 +91,13 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/upload-resume', {
+      const response = await fetch(`${API_BASE_URL}/upload-resume`, {
         method: 'POST',
         body: formData,
       });
 
       if (response.ok) {
         const data = await response.json();
-        // PDF text-ah direct-ah chat box-la fill panrom with a command
         setInput(`AUDIT MY RESUME CONTENT:\n\n${data.text}`);
       } else {
         alert("Machan, PDF upload-la error. File size or format-ah check pannu!");
@@ -104,12 +106,11 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
       console.error("Upload error!", error);
     } finally {
       setIsTyping(false);
-      // Reset input value so same file can be uploaded again if needed
       e.target.value = '';
     }
   };
 
-  // 7. Send Message Logic
+  // 7. Send Message Logic (Updated with Dynamic URL)
   const sendMessage = async () => {
     if (!input.trim()) return;
 
@@ -123,7 +124,7 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
     setIsTyping(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/chat', {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,7 +139,6 @@ export default function Workspace({ agentData, onBack, onMessageSent }: { agentD
         const data = await response.json();
         setMessages(prev => [...prev, { sender: 'ai', text: data.response }]);
         
-        // Sidebar titles refresh
         if (onMessageSent) {
           setTimeout(() => {
             onMessageSent();
