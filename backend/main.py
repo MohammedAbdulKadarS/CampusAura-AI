@@ -26,14 +26,15 @@ app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 
 # Intha list-la un Vercel URL-ah add pannanum
+# main.py-la intha section-ah ippadiyae paste pannu
 origins = [
     "http://localhost:3000",
-    "https://campus-aura-ai.vercel.app", # Un live frontend link
+    "https://campus-aura-ai.vercel.app",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins, # Inga origins list-ah direct-ah kudukkuroam
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
